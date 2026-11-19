@@ -1,0 +1,36 @@
+name: run-script
+
+# Human-triggered script execution (practice allowlist).
+# Only scripts referenced here can run via this workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: Allowlisted script to run
+        required: true
+        type: choice
+        options:
+          - hello.py
+      name:
+        description: Value passed to hello.py --name
+        required: false
+        default: workflow
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run allowlisted script
+        run: python "scripts/${{ inputs.script }}" --name "${{ inputs.name }}"

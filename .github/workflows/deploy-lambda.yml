@@ -1,0 +1,34 @@
+name: deploy-lambda
+
+# Stub only — AWS OIDC + function deploy comes next.
+# This workflow is intentionally a no-op gate so the repo is safe to push public.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type deploy to acknowledge this is still a stub
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard
+        if: ${{ inputs.confirm != 'deploy' }}
+        run: |
+          echo "Refusing to run. Set confirm=deploy after AWS OIDC is wired."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stub notice
+        run: |
+          echo "Bootstrap stub only."
+          echo "Next: IAM OIDC role for GitHub + package/publish lambda/hello."
+          echo "Do not put long-lived AWS keys in this repo."

@@ -1,0 +1,45 @@
+# Secrets / local env — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# AWS / Terraform local
+.aws/
+*.pem
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Node (if added later)
+node_modules/
+npm-debug.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Packaging artifacts
+lambda/**/package/
+lambda/**/*.zip
+artifacts/
