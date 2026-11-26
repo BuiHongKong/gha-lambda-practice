@@ -8,9 +8,13 @@
 *.pem
 *.tfstate
 *.tfstate.*
+*.tfstate.backup
 .terraform/
 .terraform.lock.hcl
 crash.log
+*.tfvars
+!*.tfvars.example
+terraform/lab/build/
 override.tf
 override.tf.json
 *_override.tf

@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars only on the machine that applies.
+# Do not commit real secrets to git.
+
+db_password = "<PASSWORD>"
