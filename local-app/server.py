@@ -6,9 +6,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -40,6 +43,8 @@ class NoFollow(urllib.request.HTTPRedirectHandler):
 
 
 OPENER = urllib.request.build_opener(NoRedirect, NoFollow)
+_SESSION_LOCK = threading.Lock()
+_SESSION: dict[str, object] | None = None
 
 
 def _check_upload_url(url: str) -> None:
@@ -63,34 +68,109 @@ def region_of(url: str) -> str:
     return parts[index + 1]
 
 
+def _aws_json(args: list[str]) -> dict[str, object]:
+    try:
+        completed = subprocess.run(args, capture_output=True, text=True, timeout=40, check=False)
+    except FileNotFoundError as exc:
+        raise RuntimeError("Không thấy lệnh aws trong process này.") from exc
+    if completed.returncode != 0:
+        lines = [line.strip() for line in completed.stderr.splitlines() if line.strip()]
+        raise RuntimeError(lines[-1][:300] if lines else "AWS CLI failed")
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("AWS CLI không trả JSON.") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("AWS CLI không trả JSON object.")
+    return payload
+
+
+def _parse_expiry(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def session_view() -> dict[str, object]:
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            return {"ok": False}
+        expires = _SESSION.get("expires")
+        if not isinstance(expires, datetime) or expires <= datetime.now(timezone.utc):
+            return {"ok": False}
+        return {
+            "ok": True,
+            "account": _SESSION.get("account", ""),
+            "arn": _SESSION.get("arn", ""),
+            "expires": expires.isoformat(),
+        }
+
+
+def refresh_session() -> dict[str, object]:
+    global _SESSION
+    try:
+        identity = _aws_json(["aws", "sts", "get-caller-identity", "--output", "json"])
+        exported = _aws_json(["aws", "configure", "export-credentials", "--format", "process"])
+        access_key = str(exported.get("AccessKeyId", ""))
+        secret_key = str(exported.get("SecretAccessKey", ""))
+        token = str(exported.get("SessionToken", ""))
+        if not access_key or not secret_key or not token:
+            raise RuntimeError("Phiên không có credential ngắn hạn.")
+        expiry_raw = exported.get("Expiration")
+        expires = _parse_expiry(str(expiry_raw)) if expiry_raw else datetime.now(timezone.utc)
+        with _SESSION_LOCK:
+            _SESSION = {
+                "access_key": access_key,
+                "secret_key": secret_key,
+                "token": token,
+                "expires": expires,
+                "account": str(identity.get("Account", "")),
+                "arn": str(identity.get("Arn", "")),
+            }
+    except Exception:
+        with _SESSION_LOCK:
+            _SESSION = None
+        raise
+    return session_view()
+
+
+def _frozen_credentials() -> object:
+    from botocore.credentials import Credentials
+
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            raise RuntimeError("Chưa có phiên. Bấm Xin credential.")
+        expires = _SESSION.get("expires")
+        if not isinstance(expires, datetime) or expires <= datetime.now(timezone.utc):
+            raise RuntimeError("Phiên đã hết hạn. Bấm Xin credential lại.")
+        return Credentials(
+            str(_SESSION["access_key"]),
+            str(_SESSION["secret_key"]),
+            str(_SESSION["token"]),
+        ).get_frozen_credentials()
+
+
 def sign_headers(method: str, url: str, headers: dict[str, str], body: bytes | None) -> dict[str, str]:
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
-    from botocore.session import Session
 
-    credentials = Session().get_credentials()
-    if credentials is None:
-        raise RuntimeError("No AWS credentials in this process. Run aws login, then start the server again.")
     request = AWSRequest(method=method, url=url, data=body, headers=headers)
-    SigV4Auth(credentials.get_frozen_credentials(), "execute-api", region_of(url)).add_auth(request)
+    SigV4Auth(_frozen_credentials(), "execute-api", region_of(url)).add_auth(request)
     return {key: value for key, value in request.headers.items()}
 
 
 def sign_websocket(url: str) -> str:
     from botocore.auth import SigV4QueryAuth
     from botocore.awsrequest import AWSRequest
-    from botocore.session import Session
 
     if not url.lower().startswith("wss://"):
         raise ValueError("WebSocket URL must start with wss://")
-    credentials = Session().get_credentials()
-    if credentials is None:
-        raise RuntimeError("No AWS credentials in this process. Run aws login, then start the server again.")
     https_url = "https://" + url[len("wss://") :]
     if not EXECUTE_API.match(https_url.split("?", 1)[0]):
         raise ValueError("WebSocket URL must be an API Gateway execute-api host")
     request = AWSRequest(method="GET", url=https_url)
-    SigV4QueryAuth(credentials.get_frozen_credentials(), "execute-api", region_of(https_url), expires=60).add_auth(request)
+    SigV4QueryAuth(_frozen_credentials(), "execute-api", region_of(https_url), expires=60).add_auth(request)
     return "wss://" + request.url[len("https://") :]
 
 
@@ -134,7 +214,11 @@ def send_upstream(method: str, url: str, headers: dict[str, str], body: bytes | 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
-        if self.path.split("?", 1)[0] != "/":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/session":
+            self._json(200, session_view())
+            return
+        if path != "/":
             self._json(404, {"error": "Not found"})
             return
         self.send_response(200)
@@ -149,6 +233,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/put-object":
                 self._json(200, self._put_object())
+                return
+            if path == "/api/session":
+                self._json(200, refresh_session())
                 return
             payload = self._read_json()
             if path == "/api/send":

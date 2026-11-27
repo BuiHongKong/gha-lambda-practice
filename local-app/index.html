@@ -34,6 +34,17 @@
       cursor: pointer;
     }
     .tab[aria-selected="true"], button.primary { background: var(--ink); color: white; border-color: var(--ink); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #session-status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 8px 16px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    #session-status.ready { background: #1f7a4d; color: white; border-color: #1f7a4d; }
     [hidden] { display: none !important; }
     .stack { display: grid; gap: 28px; }
     .split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
@@ -107,9 +118,13 @@
     <section id="panel-images" class="stack">
       <div class="card">
         <h2>API</h2>
-        <div class="field">
+        <div class="actions">
+          <button id="session-start" class="primary" type="button">Xin credential</button>
+          <span id="session-status">Chưa có phiên</span>
+        </div>
+        <div class="field" style="margin-top: 18px">
           <label for="api-base">URL gốc, không kèm /images</label>
-          <input id="api-base" placeholder="https://{api-id}.execute-api.ap-southeast-1.amazonaws.com" />
+          <input id="api-base" placeholder="https://{api-id}.execute-api.ap-southeast-1.amazonaws.com" value="https://mx8g8jo987.execute-api.ap-southeast-1.amazonaws.com" />
         </div>
       </div>
       <form id="image-form" class="card">
@@ -125,13 +140,13 @@
           </div>
         </div>
         <div class="actions" style="margin-top: 20px">
-          <button class="primary" type="submit">Tải lên</button>
+          <button class="primary" type="submit" disabled>Tải lên</button>
         </div>
       </form>
       <section class="card">
         <h2>Đã lưu</h2>
         <div class="actions">
-          <button id="image-refresh" class="primary" type="button">Danh sách</button>
+          <button id="image-refresh" class="primary" type="button" disabled>Danh sách</button>
         </div>
         <div id="image-list"></div>
       </section>
@@ -253,6 +268,37 @@
 
     const imageResult = document.querySelector("#image-result");
     const imageList = document.querySelector("#image-list");
+    const sessionStatus = document.querySelector("#session-status");
+
+    function setSession(data) {
+      const ready = Boolean(data && data.ok);
+      document.querySelector("#image-form button[type=submit]").disabled = !ready;
+      document.querySelector("#image-refresh").disabled = !ready;
+      sessionStatus.classList.toggle("ready", ready);
+      if (!ready) {
+        sessionStatus.textContent = data && data.error ? data.error : "Chưa có phiên";
+        return;
+      }
+      const until = new Date(data.expires).toLocaleString();
+      sessionStatus.textContent = `Đang làm việc · ${data.account} · hết hạn ${until}`;
+    }
+
+    async function requestSession() {
+      sessionStatus.classList.remove("ready");
+      sessionStatus.textContent = "Đang xin credential";
+      const response = await fetch("/api/session", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        setSession({ ok: false, error: data.error || "Không lấy được phiên. Chạy aws login trên máy này." });
+        return;
+      }
+      setSession(data);
+    }
+
+    document.querySelector("#session-start").addEventListener("click", () => {
+      requestSession().catch((error) => setSession({ ok: false, error: error.message }));
+    });
+    fetch("/api/session").then((response) => response.json()).then(setSession).catch(() => setSession({ ok: false }));
 
     function imageBase() {
       const base = document.querySelector("#api-base").value.trim().replace(/\/$/, "");

@@ -3,3 +3,7 @@ services:
     build: .
     ports:
       - "127.0.0.1:8766:8766"
+    volumes:
+      - ${USERPROFILE}/.aws:/home/app/.aws
+    environment:
+      HOME: /home/app
