@@ -154,9 +154,8 @@
     <header>
       <h1>Flow của stack đã tạo</h1>
       <p>
-        Một Lambda, <code>gha-lambda-practice-hello</code> ở <code>ap-southeast-1</code>.
-        Hai cửa gọi vào cùng hàm: HTTP API và AppSync. Cả hai yêu cầu chữ ký IAM.
-        Stack sống khi cả ba đường trả cùng một kết quả.
+        Một Lambda, <code>gha-lambda-practice-images</code> ở <code>ap-southeast-1</code>.
+        HTTP API yêu cầu chữ ký IAM. Lambda ký URL để client đưa byte thẳng lên S3, rồi ghi <code>s3_key</code> vào RDS.
       </p>
     </header>
 
@@ -165,12 +164,12 @@
       <div class="arrow-row">
         <div class="node">
           <strong>HTTP API</strong>
-          <span><code>GET /hello</code> trên HelloUrl. API Gateway kiểm tra chữ ký, rồi gọi Lambda với event có <code>requestContext</code>.</span>
+          <span><code>POST /images</code> trên ImagesUrl. API Gateway kiểm tra chữ ký, rồi gọi Lambda với event có <code>requestContext</code>.</span>
         </div>
         <div class="arrow" aria-hidden="true">→</div>
         <div class="node">
-          <strong>Lambda hello</strong>
-          <span>Handler nhìn hình dạng event. Cửa HTTP nhận vỏ <code>statusCode</code> + <code>body</code>. Cửa GraphQL nhận object của field.</span>
+          <strong>Lambda images</strong>
+          <span><code>POST /images</code> trả URL <code>PUT</code> hết hạn sau 60 giây. Sau khi file nằm trên S3, <code>POST /images/{id}/complete</code> mới <code>INSERT</code> dòng. <code>GET</code>, <code>PATCH</code> và <code>DELETE</code> đọc hoặc sửa dòng đó.</span>
         </div>
         <div class="arrow" aria-hidden="true">←</div>
         <div class="node">
@@ -186,8 +185,8 @@
         <article class="step">
           <div class="num">1</div>
           <div>
-            <strong>Client gọi HelloUrl</strong>
-            <p>Request đã ký SigV4. Authorizer là <code>AWS_IAM</code>. Thiếu chữ ký thì cửa từ chối, Lambda không chạy.</p>
+            <strong>Client gọi ImagesUrl</strong>
+            <p><code>POST /images</code> đã ký SigV4, body JSON chỉ có <code>name</code> và <code>content_type</code>. Authorizer là <code>AWS_IAM</code>. Thiếu chữ ký thì cửa từ chối, Lambda không chạy. Byte ảnh không đi qua cửa này.</p>
           </div>
         </article>
         <article class="step">
@@ -201,7 +200,7 @@
           <div class="num">3</div>
           <div>
             <strong>Lambda trả vỏ HTTP</strong>
-            <p><code>statusCode</code> 200, <code>body</code> là chuỗi JSON. API Gateway chuyển chuỗi đó thành response cho client.</p>
+            <p><code>statusCode</code> 201 và <code>upload_url</code>. Client <code>PUT</code> file lên URL đó. <code>complete</code> kiểm tra object rồi lưu dòng. <code>GET /images/{id}</code> ký URL xem, hết hạn sau 60 giây. DB không lưu URL.</p>
           </div>
         </article>
       </div>
@@ -228,7 +227,7 @@
           <div class="num">3</div>
           <div>
             <strong>Lambda trả object field</strong>
-            <p>Giá trị trả về là <code>{"ok": true, "message": "hello from lambda", ...}</code>. AppSync gắn object đó vào <code>data.hello</code>.</p>
+            <p>Hàm hiện tại không trả object cho query <code>hello</code>. AppSync chưa có trong Terraform. Cửa đang dùng là HTTP API.</p>
           </div>
         </article>
       </div>
@@ -238,31 +237,24 @@
     </section>
 
     <section>
-      <h2>Ba tín hiệu stack đang sống</h2>
+      <h2>Hai tín hiệu stack đang sống</h2>
       <div class="checks">
         <article class="check">
           <div class="num">1</div>
           <div>
-            <strong>Invoke thẳng Lambda</strong>
-            <p>Khớp thì code hàm ổn. Hỏng ở đây thì chưa cần nhìn hai cửa.</p>
+            <strong>POST ImagesUrl</strong>
+            <p>Body có <code>ok: true</code>, <code>id</code> và <code>s3_key</code>. Thiếu chữ ký thì Lambda không chạy.</p>
           </div>
         </article>
         <article class="check">
           <div class="num">2</div>
           <div>
-            <strong>GET HelloUrl</strong>
-            <p>Khớp thì HTTP API đang trỏ đúng hàm. URL có mà body sai nghĩa là route hoặc integration lệch.</p>
-          </div>
-        </article>
-        <article class="check">
-          <div class="num">3</div>
-          <div>
-            <strong>Query hello trên GraphQlUrl</strong>
-            <p>Khớp thì resolver AppSync đang trỏ đúng hàm.</p>
+            <strong>GET /images/{id}</strong>
+            <p>Cùng <code>s3_key</code>, URL mới hết hạn sau 60 giây. 404 nghĩa là dòng không có trong RDS.</p>
           </div>
         </article>
       </div>
-      <p style="margin-top: 12px;">Cả ba có <code>ok: true</code>, <code>service: gha-lambda-practice</code>, và <code>function</code> đúng tên hàm trong output của stack.</p>
+      <p style="margin-top: 12px;">Cả hai có <code>service: gha-lambda-practice</code>. Output <code>function_name</code> là <code>gha-lambda-practice-images</code>.</p>
     </section>
 
     <section>
@@ -277,11 +269,11 @@
         <tbody>
           <tr>
             <td><code>FunctionName</code></td>
-            <td>Đối chiếu field <code>function</code> trong payload. Đúng tên thì đúng hàm đã deploy.</td>
+            <td>Tên hàm đã deploy, <code>gha-lambda-practice-images</code>.</td>
           </tr>
           <tr>
-            <td><code>HelloUrl</code></td>
-            <td>Gọi <code>GET /hello</code> qua API Gateway.</td>
+            <td><code>ImagesUrl</code></td>
+            <td>Gọi <code>POST /images</code> qua API Gateway. Đọc lại bằng <code>GET /images/{id}</code>.</td>
           </tr>
           <tr>
             <td><code>GraphQlUrl</code></td>

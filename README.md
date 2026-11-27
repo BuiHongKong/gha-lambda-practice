@@ -8,7 +8,7 @@ Personal account bootstrap — no org required.
 
 | Path | Purpose |
 |------|---------|
-| `lambda/hello/` | Minimal Lambda handler |
+| `lambda/images/` | Lambda that stores an image in S3 and its key in RDS |
 | `scripts/` | Allowlisted scripts for Actions |
 | `.github/workflows/ci.yml` | Prove changes on push/PR |
 | `.github/workflows/run-script.yml` | Manual `workflow_dispatch` script run |
@@ -25,7 +25,7 @@ Personal account bootstrap — no org required.
 
 ```bash
 python scripts/hello.py --name local
-python -m py_compile lambda/hello/handler.py
+python -m py_compile lambda/images/handler.py
 ```
 
 ## Security check
@@ -40,6 +40,6 @@ python -m py_compile lambda/hello/handler.py
 ## Next (later)
 
 1. AWS IAM OIDC provider trusted to this repo
-2. Package + deploy `lambda/hello`
+2. Package + deploy `lambda/images`
 3. Optional EventBridge schedule → Lambda
 4. Harden `run-script` with environment approvals

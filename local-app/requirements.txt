@@ -1,0 +1,2 @@
+# Local console only. Do not commit real credentials.
+boto3>=1.35

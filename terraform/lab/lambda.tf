@@ -1,13 +1,11 @@
 data "aws_caller_identity" "current" {}
 
-data "archive_file" "hello" {
-  type        = "zip"
-  source_file = "${path.module}/../../lambda/hello/handler.py"
-  output_path = "${path.module}/build/hello.zip"
+data "external" "lambda_zip" {
+  program = ["python", "${path.module}/../../lambda/images/build_zip.py"]
 }
 
-resource "aws_cloudwatch_log_group" "hello" {
-  name              = "/aws/lambda/${local.name}-hello"
+resource "aws_cloudwatch_log_group" "images" {
+  name              = "/aws/lambda/${local.name}-images"
   retention_in_days = 14
 }
 
@@ -25,7 +23,7 @@ data "aws_iam_policy_document" "lambda_assume" {
 }
 
 resource "aws_iam_role" "lambda" {
-  name               = "${local.name}-hello"
+  name               = "${local.name}-images"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
 }
 
@@ -39,7 +37,7 @@ data "aws_iam_policy_document" "lambda" {
       "logs:PutLogEvents",
     ]
 
-    resources = ["${aws_cloudwatch_log_group.hello.arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.images.arn}:*"]
   }
 
   # CreateNetworkInterface does not support resource-level permissions.
@@ -59,36 +57,39 @@ data "aws_iam_policy_document" "lambda" {
   }
 
   statement {
-    sid       = "ListImages"
-    effect    = "Allow"
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.images.arn]
-  }
-
-  statement {
     sid       = "ReadImages"
     effect    = "Allow"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.images.arn}/*"]
+    resources = ["${aws_s3_bucket.images.arn}/images/*"]
+  }
+
+  statement {
+    sid    = "WriteImages"
+    effect = "Allow"
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = ["${aws_s3_bucket.images.arn}/images/*"]
   }
 }
 
 resource "aws_iam_role_policy" "lambda" {
-  name   = "${local.name}-hello"
+  name   = "${local.name}-images"
   role   = aws_iam_role.lambda.id
   policy = data.aws_iam_policy_document.lambda.json
 }
 
-resource "aws_lambda_function" "hello" {
-  function_name = "${local.name}-hello"
+resource "aws_lambda_function" "images" {
+  function_name = "${local.name}-images"
   role          = aws_iam_role.lambda.arn
   runtime       = "python3.12"
   handler       = "handler.handler"
-  timeout       = 10
-  memory_size   = 128
+  timeout       = 15
+  memory_size   = 256
 
-  filename         = data.archive_file.hello.output_path
-  source_code_hash = data.archive_file.hello.output_base64sha256
+  filename         = data.external.lambda_zip.result.filename
+  source_code_hash = data.external.lambda_zip.result.source_code_hash
 
   vpc_config {
     subnet_ids         = [aws_subnet.private[0].id]
@@ -106,5 +107,5 @@ resource "aws_lambda_function" "hello" {
     }
   }
 
-  depends_on = [aws_cloudwatch_log_group.hello]
+  depends_on = [aws_cloudwatch_log_group.images]
 }

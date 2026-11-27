@@ -1,10 +1,10 @@
-output "hello_url" {
-  description = "IAM-signed GET /hello URL."
-  value       = "${aws_apigatewayv2_api.hello.api_endpoint}/hello"
+output "images_url" {
+  description = "IAM-signed image API. POST /images returns a presigned S3 upload URL."
+  value       = "${aws_apigatewayv2_api.images.api_endpoint}/images"
 }
 
 output "function_name" {
-  value = aws_lambda_function.hello.function_name
+  value = aws_lambda_function.images.function_name
 }
 
 output "rds_address" {

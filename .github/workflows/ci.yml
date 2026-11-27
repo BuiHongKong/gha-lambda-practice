@@ -22,7 +22,11 @@ jobs:
           python-version: "3.12"
 
       - name: Syntax-check Lambda handler
-        run: python -m py_compile lambda/hello/handler.py
+        run: python -m py_compile lambda/images/handler.py lambda/images/build_zip.py
+
+      - name: Test image upload validation
+        working-directory: lambda/images
+        run: python -m unittest test_handler.py
 
       - name: Syntax-check scripts
         run: python -m py_compile scripts/hello.py
