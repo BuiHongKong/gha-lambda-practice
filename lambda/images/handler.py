@@ -287,9 +287,14 @@ def _s3() -> Any:
     from botocore.config import Config
 
     if not hasattr(_s3, "client"):
+        region = os.environ.get("AWS_REGION", "ap-southeast-1")
         _s3.client = boto3.client(
             "s3",
+            region_name=region,
+            endpoint_url=f"https://s3.{region}.amazonaws.com",
             config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "virtual"},
                 connect_timeout=3,
                 read_timeout=5,
                 retries={"max_attempts": 2, "mode": "standard"},
